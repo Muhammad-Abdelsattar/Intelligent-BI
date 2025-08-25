@@ -1,5 +1,6 @@
 import pandas as pd
 from sqlalchemy.engine import Engine
+from sqlalchemy.exc import SQLAlchemyError
 from .manager import DatabaseManager
 
 class DatabaseExecutor:
@@ -24,7 +25,7 @@ class DatabaseExecutor:
         """
         try:
             with self._engine.connect() as connection:
-                df = pd.read_sql_query(sql_query, connection)
+                df = pd.read_sql_query(sql_query, connection.connection)
             return df
         except SQLAlchemyError as e:
             raise RuntimeError(f"Database execution failed: {e}") from e

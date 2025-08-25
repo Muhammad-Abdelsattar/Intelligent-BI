@@ -44,3 +44,7 @@ class DatabaseManager:
     def get_uri(self) -> str:
         """Returns the database connection URI."""
         return self._strategy.get_uri()
+
+    def get_schema_info(self) -> str:
+        """Returns the database schema information from the strategy."""
+        return self._strategy.get_schema_info()

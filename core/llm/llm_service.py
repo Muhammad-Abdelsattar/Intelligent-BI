@@ -1,17 +1,17 @@
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional, Type, Union
+from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, BaseMessage
+from pydantic import BaseModel
 
 from core.llm.llm_factory import LLMFactory
 from core.llm.prompt_manager import PromptManager
-from core.llm.generation_chain import GenerationChain
 
 class LLMService:
     """
     A high-level interface for AI agents to interact with the LLM.
 
-    This class abstracts away the details of prompt management, LLM client
-    creation, and the generation chain. An agent only needs to instantiate
-    this class with its name and a chosen LLM provider, and then call
-    the `generate_response` method.
+    This class abstracts away the details of prompt management and LLM client
+    creation, providing methods for different types of generation (text, structured).
     """
 
     def __init__(self, agent_name: str, provider_key: str, llm_config_path: str = "core/config/llm_providers.yaml", prompts_base_path: str = "core/prompts"):
@@ -27,27 +27,41 @@ class LLMService:
         """
         # 1. Create LLM client
         llm_factory = LLMFactory(config_path=llm_config_path)
-        llm_client = llm_factory.create_llm_client(provider_key)
+        self.llm_client = llm_factory.create_llm_client(provider_key)
 
         # 2. Load prompts and examples
         prompt_manager = PromptManager(prompts_base_path=prompts_base_path)
-        system_prompt, user_prompt = prompt_manager.get_prompts(agent_name)
+        self.system_prompt_template, self.human_prompt_template = prompt_manager.get_prompts(agent_name)
         self.few_shot_examples = prompt_manager.get_few_shot_examples(agent_name)
 
-        # 3. Create Generation Chain
-        self._chain = GenerationChain(
-            llm_client=llm_client,
-            system_prompt_template=system_prompt,
-            human_prompt_template=user_prompt
-        )
+    def _build_messages(self, variables: Dict[str, Any]) -> List[BaseMessage]:
+        """Helper to build the list of messages for the LLM."""
+        messages: List[BaseMessage] = []
 
-    def _extract_sql_from_response(self, raw_response: str) -> str:
+        # 1. System Message
+        system_content = self.system_prompt_template.format(**variables)
+        messages.append(SystemMessage(content=system_content))
+
+        # 2. Few-shot examples
+        if self.few_shot_examples:
+            for example in self.few_shot_examples:
+                if 'user' in example and 'assistant' in example:
+                    messages.append(HumanMessage(content=example['user']))
+                    messages.append(AIMessage(content=example['assistant']))
+
+        # 3. Human Message
+        human_content = self.human_prompt_template.format(**variables)
+        messages.append(HumanMessage(content=human_content))
+        return messages
+
+    def _extract_sql_from_response(self, raw_response: AIMessage) -> str:
         """
         Extracts the SQL query from a markdown code block in the raw LLM response.
         Assumes the SQL is within ```sql ... ```.
         """
         start_tag = "```sql"
         end_tag = "```"
+        raw_response = raw_response.content
 
         start_index = raw_response.find(start_tag)
         if start_index == -1:
@@ -66,21 +80,19 @@ class LLMService:
         extracted_sql = raw_response[start_index:end_index].strip()
         return extracted_sql
 
-    def generate_response(self, variables: Dict[str, Any]) -> str:
+    def generate_text(self, variables: Dict[str, Any]) -> str:
         """
-        Generates a response from the LLM using the pre-configured chain
-        and extracts the SQL query from the markdown block.
-
-        Args:
-            variables: A dictionary of dynamic values to format the prompt
-                       templates (e.g., {'user_question': '...', 'schema': '...'}).
-
-        Returns:
-            The extracted SQL query string, or an error message if the LLM
-            returned one.
+        Generates a text response from the LLM.
         """
-        raw_response = self._chain.invoke(
-            variables=variables,
-            few_shot_examples=self.few_shot_examples
-        )
+        messages = self._build_messages(variables)
+        raw_response = self.llm_client.invoke(messages)
         return self._extract_sql_from_response(raw_response)
+
+    def generate_structured(self, variables: Dict[str, Any], response_model: Type[BaseModel]) -> BaseModel:
+        """
+        Generates a structured response from the LLM, parsed into a Pydantic model.
+        """
+        messages = self._build_messages(variables)
+        structured_llm = self.llm_client.with_structured_output(response_model)
+        structured_response = structured_llm.invoke(messages)
+        return structured_response

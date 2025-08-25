@@ -1,5 +1,6 @@
 import pandas as pd
 from omegaconf import DictConfig
+import sqlparse
 
 from .manager import DatabaseManager
 from .validator import SQLValidator
@@ -40,3 +41,12 @@ class DatabaseService:
             raise ValueError(f"Invalid SQL query: {message}")
 
         return self._executor.execute_query(sql_query)
+
+    def get_schema_info(self) -> str:
+        """
+        Retrieves the database schema information from the underlying strategy.
+
+        Returns:
+            A string representation of the database schema.
+        """
+        return self._manager.get_schema_info()
