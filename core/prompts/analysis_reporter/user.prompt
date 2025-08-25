@@ -1,0 +1,9 @@
+Please analyze the following data, which was retrieved using the query:
+
+**SQL Query:**
+{sql_query}
+
+**Data:**
+{query_results}
+
+**Analysis:**

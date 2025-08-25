@@ -1,0 +1,12 @@
+**Database Dialect:**
+{database_dialect}
+
+**Database Schema:**
+```
+{schema_definition}
+```
+
+**User Question:**
+{user_question}
+
+**Generated SQL Query:**

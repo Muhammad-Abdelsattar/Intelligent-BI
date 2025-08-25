@@ -1,0 +1,9 @@
+Given the following data and analysis, please suggest a chart type and provide its configuration.
+
+**Analysis:**
+{analysis}
+
+**Data:**
+{query_results}
+
+**Chart Configuration (JSON):**
