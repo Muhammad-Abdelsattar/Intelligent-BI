@@ -1,27 +1,26 @@
-llm_providers:
-  azure-openai-gpt4o-mini:
-    display_name: "Azure OpenAI (GPT-4o mini)"
-    class: "langchain_openai.AzureChatOpenAI"
-    params:
-      temperature: 0.3
-      openai_api_version: ${oc.env:OPENAI_API_VERSION}
-      azure_deployment: ${oc.env:AZURE_OPENAI_CHAT_DEPLOYMENT_NAME}
-      azure_endpoint: ${oc.env:AZURE_OPENAI_ENDPOINT}
-      api_key: ${oc.env:AZURE_OPENAI_API_KEY}
+azure-openai-gpt4o-mini:
+  display_name: "Azure OpenAI (GPT-4o mini)"
+  class: "langchain_openai.AzureChatOpenAI"
+  params:
+    temperature: 0.3
+    openai_api_version: ${env:OPENAI_API_VERSION}
+    azure_deployment: ${env:AZURE_OPENAI_CHAT_DEPLOYMENT_NAME}
+    azure_endpoint: ${env:AZURE_OPENAI_ENDPOINT}
+    api_key: ${env:AZURE_OPENAI_API_KEY}
 
-  google-gemini-2.5-lite:
-    display_name: "Google Gemini (2.5 Flash Lite)"
-    class: "langchain_google_genai.ChatGoogleGenerativeAI"
-    params:
-      temperature: 0.3
-      model: "gemini-2.5-flash-lite"
-      google_api_key: ${oc.env:GOOGLE_API_KEY}
+google-gemini-2.5-lite:
+  display_name: "Google Gemini (2.5 Flash Lite)"
+  class: "langchain_google_genai.ChatGoogleGenerativeAI"
+  params:
+    temperature: 0.3
+    model: "gemini-2.5-flash-lite"
+    google_api_key: ${env:GOOGLE_API_KEY}
 
-  google-gemini-2.5-flash:
-    display_name: "Google Gemini (2.5 Flash)"
-    class: "langchain_google_genai.ChatGoogleGenerativeAI"
-    params:
-      temperature: 0.3
-      model: "gemini-2.5-flash"
-      google_api_key: ${oc.env:GOOGLE_API_KEY}
-      thinking_budget: 0
+google-gemini-2.5-flash:
+  display_name: "Google Gemini (2.5 Flash)"
+  class: "langchain_google_genai.ChatGoogleGenerativeAI"
+  params:
+    temperature: 0.3
+    model: "gemini-2.5-flash"
+    google_api_key: ${env:GOOGLE_API_KEY}
+    thinking_budget: 0

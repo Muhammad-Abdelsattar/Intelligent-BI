@@ -1,4 +1,5 @@
 from __future__ import annotations
+import logging
 from omegaconf import DictConfig
 import pandas as pd
 from pathlib import Path
@@ -33,6 +34,9 @@ class SQLAgentState(TypedDict):
     error: Optional[str]
 
 
+logger = logging.getLogger(__name__)
+
+
 class SQLAgent:
     """
     An agent that uses LangGraph to define a robust, stateful workflow for
@@ -40,9 +44,9 @@ class SQLAgent:
     """
 
     def __init__(
-        self, 
-        llm_service: LLMService, 
-        db_service: AgentDatabaseService, 
+        self,
+        llm_service: LLMService,
+        db_service: AgentDatabaseService,
         name: str,
         max_attempts: int,
     ):
@@ -57,26 +61,34 @@ class SQLAgent:
 
     @classmethod
     def from_config(
-        cls, 
-        agent_config: DictConfig, 
-        databases_config: DictConfig, 
-        llm_providers_config: DictConfig, 
+        cls,
+        agent_key: str,
+        app_config: DictConfig,
         prompts_base_path: Path
     ) -> "SQLAgent":
         """
-        Creates an SQLAgent from configuration files.
+        Creates an SQLAgent from a unified application configuration.
+
+        Args:
+            agent_key: The key for this agent in the 'agents.yaml' config.
+            app_config: The complete, namespaced application configuration object.
+            prompts_base_path: The path to the base prompts directory.
         """
-        # Create LLMService
+        agent_config = app_config.agents.get(agent_key)
+        if not agent_config:
+            raise ValueError(f"Agent key '{agent_key}' not found in agents configuration.")
+
+        # Create LLMService, passing the 'llms' section of the config
         llm_service = LLMService(
             agent_prompts_dir=agent_config.prompts_dir,
             provider_key=agent_config.llm_provider_key,
-            llm_providers_config=llm_providers_config,
+            llm_config=app_config.llms, # Pass the entire llms config section
             prompts_base_path=prompts_base_path
         )
 
         # Create AgentDatabaseService
         db_key = agent_config.database_key
-        db_config = databases_config.get(db_key)
+        db_config = app_config.databases.get(db_key) # Look up the db_config in the 'databases' section
         if db_config is None:
             raise ValueError(f"Database key '{db_key}' not found in databases configuration.")
         db_service = AgentDatabaseService(db_config)
@@ -99,7 +111,7 @@ class SQLAgent:
         # --- 3. Define the Edges of the Graph ---
         graph.set_entry_point("generate_sql")
         graph.add_edge("generate_sql", "execute_sql")
-        
+
         # This conditional edge is the core of the retry loop
         graph.add_conditional_edges(
             "execute_sql",
@@ -109,7 +121,7 @@ class SQLAgent:
                 "end": END               # If successful or out of retries, end
             }
         )
-        
+
         return graph
 
     # --- Node Function Definitions ---
@@ -118,20 +130,20 @@ class SQLAgent:
         """
         Node that generates an SQL query using the LLM.
         """
-        print(f"--- Attempt {state['current_attempt'] + 1} of {state['max_attempts']}: Generating SQL ---")
-        
+        logger.info(f"--- Attempt {state['current_attempt'] + 1} of {state['max_attempts']}: Generating SQL ---")
+
         llm_variables = {
             "database_dialect": state["db_context"]["database_dialect"],
             "schema_definition": state["db_context"]["table_info"],
             "user_question": state["natural_language_question"],
             "history": "\n".join(state["history"])
         }
-        
+
         generated_sql = self.llm_service.generate_text(llm_variables)
-        print(f"Generated SQL:\n{generated_sql}")
+        logger.info(f"Generated SQL:\n{generated_sql}")
 
         history = state["history"] + [f"ATTEMPT {state['current_attempt'] + 1} SQL:\n{generated_sql}"]
-        
+
         return {
             "current_attempt": state["current_attempt"] + 1,
             "generated_sql": generated_sql,
@@ -142,13 +154,22 @@ class SQLAgent:
         """
         Node that executes the generated SQL query and handles potential errors.
         """
-        print("--- Executing SQL ---")
+        generated_sql = state["generated_sql"].strip()
+
+        # First, check if the LLM returned a deliberate error instead of SQL
+        if generated_sql.startswith("Error:"):
+            logger.warning(f"LLM refused to generate SQL, returning error: {generated_sql}")
+            # Set the error to be the exact message from the LLM and stop.
+            return {"final_dataframe": None, "error": generated_sql}
+
+        logger.info("--- Executing SQL ---")
         try:
-            results_df = self.db_service.execute_for_dataframe(state["generated_sql"])
-            print("Successfully executed SQL.")
+            results_df = self.db_service.execute_for_dataframe(generated_sql)
+            logger.info("Successfully executed SQL.")
             return {"final_dataframe": results_df, "error": None}
         except (ValueError, RuntimeError) as e:
-            error_message = f"Error: {e}"
+            # This is a database execution error
+            error_message = f"Error executing SQL: {e}"
             logger.error(f"Execution failed with error:\n{error_message}")
             history = state["history"] + [f"DATABASE ERROR:\n{error_message}"]
             return {"error": error_message, "history": history, "final_dataframe": None}
@@ -157,18 +178,26 @@ class SQLAgent:
         """
         Conditional edge logic. Determines whether to retry generation or end.
         """
-        if state["error"] is None:
+        error = state.get("error")
+
+        if error is None:
             # Success, no error
-            print("--- Workflow successful ---")
+            logger.info("--- Workflow successful ---")
             return "end"
-        
+
+        # If the error is the exact same as the generated_sql, it means the LLM
+        # deliberately returned an error message. We should not retry.
+        if error.strip() == state.get("generated_sql").strip():
+            logger.error(f"Workflow ended because LLM returned a deliberate error: {error}")
+            return "end"
+
+        # If we are out of retries for a database-side error, end.
         if state["current_attempt"] >= state["max_attempts"]:
-            # Out of retries
-            print("--- Max attempts reached, ending workflow ---")
+            logger.warning("-- Max attempts reached, ending workflow --")
             return "end"
-        
-        # Error occurred and we have attempts left
-        print("--- Error found, retrying ---")
+
+        # A retry-able error (e.g., from the database) occurred and we have attempts left.
+        logger.info(f"--- Database error found, retrying ---")
         return "retry"
 
     # --- Public Method to Run the Agent ---
@@ -208,6 +237,7 @@ class SQLAgent:
         else:
             final_error = final_state["error"] or "Unknown error"
             raise RuntimeError(
-                f"Agent failed to generate a valid SQL query after {self.max_attempts} attempts. "
+                # f"Agent failed to generate a valid SQL query after {self.max_attempts} attempts. "
+                f"Agent failed to generate a valid SQL query after maximum number of attempts. "
                 f"Final error: {final_error}"
             )

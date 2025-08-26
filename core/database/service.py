@@ -35,11 +35,12 @@ class AgentDatabaseService:
             sample_rows_in_table_info=sample_rows_in_table_info,
             include_tables=include_tables,
         )
+        self.dialect = self._langchain_db.dialect
 
 
     def get_context_for_agent(self) -> Dict[str, Any]:
         """Gets all necessary context (schema, tables) for a prompt template."""
-        context = {**self._langchain_db.get_context(),"database_dialect": self.db_type}
+        context = {**self._langchain_db.get_context(),"database_dialect": self.dialect }
         return context
 
     def run_query_for_agent(self, sql_query: str) -> str:

@@ -16,7 +16,7 @@ class LLMService:
     creation, providing methods for different types of generation (text, structured).
     """
 
-    def __init__(self, agent_prompts_dir: str, provider_key: str, llm_providers_config: DictConfig, prompts_base_path: Path):
+    def __init__(self, agent_prompts_dir: str, provider_key: str, llm_config: DictConfig, prompts_base_path: Path):
         """
         Initializes the complete LLM stack for a specific agent.
 
@@ -24,11 +24,11 @@ class LLMService:
             agent_prompts_dir: The name of the agent's prompt directory (e.g., 'sql_generator').
             provider_key: The key for the LLM provider from the config
                           (e.g., 'azure_openai_4o').
-            llm_providers_config: OmegaConf DictConfig containing LLM provider details.
+            llm_config: OmegaConf DictConfig containing the entire 'llms.yaml' content.
             prompts_base_path: Path to the prompts directory.
         """
         # 1. Create LLM client
-        llm_factory = LLMFactory(llm_providers_config=llm_providers_config)
+        llm_factory = LLMFactory(llm_config=llm_config)
         self.llm_client = llm_factory.create_llm_client(provider_key)
 
         # 2. Load prompts and examples
@@ -63,23 +63,27 @@ class LLMService:
         """
         start_tag = "```sql"
         end_tag = "```"
-        raw_response = raw_response.content
+        raw_content = raw_response.content
 
-        start_index = raw_response.find(start_tag)
+        start_index = raw_content.find(start_tag)
         if start_index == -1:
             # If no start tag, check for error message
-            if raw_response.strip().startswith("Error:"):
-                return raw_response # Return error message as is
-            raise ValueError("LLM response does not contain a '```sql' block.")
+            if raw_content.strip().startswith("Error:"):
+                return raw_content # Return error message as is
+            # If no ```sql block is found, assume the entire response is the SQL.
+            # This adds robustness for models that forget the markdown.
+            return raw_content.strip()
+
 
         # Adjust start_index to point to the character after the start_tag
         start_index += len(start_tag)
 
-        end_index = raw_response.find(end_tag, start_index)
+        end_index = raw_content.find(end_tag, start_index)
         if end_index == -1:
-            raise ValueError("LLM response contains '```sql' but no closing '```' tag.")
+            # If there's a start but no end, take everything after the start.
+            return raw_content[start_index:].strip()
 
-        extracted_sql = raw_response[start_index:end_index].strip()
+        extracted_sql = raw_content[start_index:end_index].strip()
         return extracted_sql
 
     def generate_text(self, variables: Dict[str, Any]) -> str:

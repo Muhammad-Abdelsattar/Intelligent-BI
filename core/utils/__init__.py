@@ -1,3 +1,3 @@
-from .config_parser import load_config
+from .config_parser import load_app_config
 
-__all__ = ["load_config"]
+__all__ = ["load_app_config"]

@@ -1,8 +1,13 @@
+sqlite_default:
+  type: sqlite
+  params:
+    db_path: "data/bi_database.db" # Example path relative to project root
+
 postgres:
   type: postgres
   params:
-    host: ${oc.env:DB_HOST}
-    port: ${oc.env:DB_PORT}
-    user: ${oc.env:DB_USER}
-    password: ${oc.env:DB_PASSWORD}
-    dbname: ${oc.env:DB_NAME}
+    host: ${env:DB_HOST}
+    port: ${env:DB_PORT}
+    user: ${env:DB_USER}
+    password: ${env:DB_PASSWORD}
+    dbname: ${env:DB_NAME}

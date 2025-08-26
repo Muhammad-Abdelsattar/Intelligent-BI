@@ -9,16 +9,17 @@ class LLMFactory:
     A factory class for creating LangChain LLM clients using OmegaConf.
     """
 
-    def __init__(self, llm_providers_config: DictConfig):
+    def __init__(self, llm_config: DictConfig):
         """
         Initializes the factory with the LLM provider configuration.
 
         Args:
-            llm_providers_config: OmegaConf DictConfig containing LLM provider details.
+            llm_config: OmegaConf DictConfig containing LLM provider details,
+                        corresponding to the content of 'llms.yaml'.
         """
-        if not isinstance(llm_providers_config, DictConfig) or 'llm_providers' not in llm_providers_config or not isinstance(llm_providers_config.llm_providers, DictConfig):
-            raise ValueError("LLM providers config must be a dictionary and contain a 'llm_providers' dictionary.")
-        self._config = llm_providers_config.llm_providers
+        if not isinstance(llm_config, DictConfig):
+            raise ValueError("LLM config must be a valid OmegaConf DictConfig object.")
+        self._config = llm_config
 
     def get_available_providers(self) -> Dict[str, str]:
         """
@@ -29,7 +30,7 @@ class LLMFactory:
             return {}
         return {
             key: provider.get('display_name', key)
-            for key, provider in self._config.items()
+            for key, provider in self.config.items()
             if provider
         }
 
@@ -38,7 +39,7 @@ class LLMFactory:
         Creates an LLM client instance based on the provider key.
 
         Args:
-            provider_key: The key from the llm_providers.yaml file (e.g., 'azure_openai_4o').
+            provider_key: The key from the llms.yaml file (e.g., 'azure-openai-gpt4o-mini').
 
         Returns:
             An instance of the specified LangChain LLM client.
