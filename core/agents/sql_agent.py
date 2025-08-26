@@ -3,21 +3,32 @@ import logging
 from omegaconf import DictConfig
 import pandas as pd
 from pathlib import Path
-from typing import List, TypedDict, Optional, Dict, Any
+from typing import List, TypedDict, Optional, Dict, Any, Tuple
 from langgraph.graph import StateGraph, END
 
 from core.llm import LLMService
 from core.database import AgentDatabaseService
-# Import the new single Pydantic model
 from core.models.sql_agent_models import SQLAgentResponse
 
 
 class SQLAgentState(TypedDict):
+    """
+    Represents the internal, temporary state of the SQL Agent's workflow.
+    This state is created at the start of a `run` and destroyed at the end.
+    """
+    # Inputs for the workflow
     natural_language_question: str
+    chat_history: List[Tuple[str, str]] # The history of the conversation
+
+    # Database context
     db_context: Dict[str, Any]
-    history: List[str]
+
+    # Internal loop state
+    history: List[str] # The history of generation attempts and errors in this run
     max_attempts: int
     current_attempt: int
+
+    # Outputs
     generated_sql: str
     final_dataframe: Optional[pd.DataFrame]
     error: Optional[str]
@@ -27,6 +38,15 @@ logger = logging.getLogger(__name__)
 
 
 class SQLAgent:
+    """
+    A self-contained agent that generates and executes SQL queries.
+
+    This agent is designed to be called by a higher-level orchestrator. It accepts
+    a user question and optional conversational history, and manages an internal
+    retry loop to robustly generate a valid SQL query. Its final output is a
+    pandas DataFrame.
+    """
+
     def __init__(
         self,
         llm_service: LLMService,
@@ -48,6 +68,7 @@ class SQLAgent:
         app_config: DictConfig,
         prompts_base_path: Path
     ) -> "SQLAgent":
+        # This factory method remains unchanged.
         agent_config = app_config.agents.get(agent_key)
         if not agent_config:
             raise ValueError(f"Agent key '{agent_key}' not found in agents configuration.")
@@ -70,6 +91,7 @@ class SQLAgent:
         )
 
     def _build_graph(self) -> StateGraph:
+        # The graph structure remains unchanged.
         graph = StateGraph(SQLAgentState)
         graph.add_node("generate_sql", self.generate_sql_node)
         graph.add_node("execute_sql", self.execute_sql_node)
@@ -84,15 +106,21 @@ class SQLAgent:
 
     def generate_sql_node(self, state: SQLAgentState) -> Dict[str, Any]:
         """
-        Node that generates an SQL query using a unified structured output from the LLM.
+        Node that generates an SQL query, now including conversational history.
         """
         logger.info(f"--- Attempt {state['current_attempt'] + 1} of {state['max_attempts']}: Generating SQL ---")
+
+        # Format the conversational history into a string for the prompt
+        chat_history_str = "\n".join(
+            [f"Human: {q}\nAI: {a}" for q, a in state.get("chat_history", [])]
+        ).strip()
 
         llm_variables = {
             "database_dialect": self.db_service.dialect,
             "schema_definition": state["db_context"]["table_info"],
             "user_question": state["natural_language_question"],
-            "history": "\n".join(state["history"])
+            "history": "\n".join(state["history"]), # Internal retry history
+            "chat_history": chat_history_str if chat_history_str else "No previous conversation history."
         }
 
         response: SQLAgentResponse = self.llm_service.generate_structured(
@@ -100,7 +128,6 @@ class SQLAgent:
             response_model=SQLAgentResponse
         )
 
-        # Check the status field to determine the outcome. This is clean and explicit.
         if response.status == 'success':
             generated_sql = response.query
             logger.info(f"Successfully generated SQL:\n{generated_sql}")
@@ -110,7 +137,7 @@ class SQLAgent:
                 "generated_sql": generated_sql,
                 "history": history
             }
-        else: # response.status == 'error'
+        else:
             error_message = f"Error: {response.reason}"
             logger.warning(f"LLM refused to generate SQL, returning structured error: {error_message}")
             history = state["history"] + [f"ATTEMPT {state['current_attempt'] + 1} LLM ERROR:\n{error_message}"]
@@ -120,8 +147,8 @@ class SQLAgent:
                 "history": history
             }
 
-    # The rest of the file (execute_sql_node, should_retry_node, run) remains unchanged.
     def execute_sql_node(self, state: SQLAgentState) -> Dict[str, Any]:
+        # This node remains unchanged.
         generated_sql = state["generated_sql"].strip()
         if generated_sql.startswith("Error:"):
             logger.warning(f"LLM refused to generate SQL, returning error: {generated_sql}")
@@ -138,6 +165,7 @@ class SQLAgent:
             return {"error": error_message, "history": history, "final_dataframe": None}
 
     def should_retry_node(self, state: SQLAgentState) -> str:
+        # This node remains unchanged.
         error = state.get("error")
         if error is None:
             logger.info("--- Workflow successful ---")
@@ -151,9 +179,27 @@ class SQLAgent:
         logger.info(f"--- Database error found, retrying ---")
         return "retry"
 
-    def run(self, natural_language_question: str) -> pd.DataFrame:
+    def run(self, natural_language_question: str, chat_history: Optional[List[Tuple[str, str]]] = None) -> pd.DataFrame:
+        """
+        Executes the agent's workflow to answer a natural language question,
+        considering the provided conversational history.
+
+        Args:
+            natural_language_question: The user's current question.
+            chat_history: An optional list of (human, ai) tuples representing
+                          the conversation so far.
+
+        Returns:
+            A pandas DataFrame with the query results.
+
+        Raises:
+            RuntimeError: If the agent fails to produce a valid SQL query
+                          after all attempts.
+        """
+        # The agent receives the chat_history and uses it to create the initial state for the graph.
         initial_state: SQLAgentState = {
             "natural_language_question": natural_language_question,
+            "chat_history": chat_history or [],
             "db_context": self.db_service.get_context_for_agent(),
             "history": [],
             "max_attempts": self.max_attempts,
@@ -162,7 +208,11 @@ class SQLAgent:
             "final_dataframe": None,
             "error": None
         }
+
+        # The internal graph runs with this temporary, complete state.
         final_state = self.app.invoke(initial_state)
+
+        # The agent returns its primary output, as expected by the orchestrator.
         if final_state["final_dataframe"] is not None:
             return final_state["final_dataframe"]
         else:

@@ -1,0 +1,18 @@
+**Database Dialect:**
+{database_dialect}
+
+**Database Schema Definition:**
+```
+{schema_definition}
+```
+
+**Conversation History:**
+This is the history of the conversation you are having with the user. Use it to understand context.
+{chat_history}
+
+**Analysis of Previous Attempts (for the current question):**
+This section contains the history of previously generated SQL for the current question and any database errors that occurred. Use this information to correct your mistakes.
+{history}
+
+**User's Current Question:**
+{user_question}

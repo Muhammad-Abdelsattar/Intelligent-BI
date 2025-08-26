@@ -3,4 +3,4 @@ sql_agent:
   prompts_dir: "sql_agent"
   max_attempts: 3
   llm_provider_key: "azure-openai-gpt4o-mini"
-  database_key: "sqlite_default" 
+  database_key: "postgres" 
