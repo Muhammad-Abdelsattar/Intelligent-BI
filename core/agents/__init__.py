@@ -1,3 +1,3 @@
-from .sql_generator import SQLGeneratorAgent
+from .sql_agent import SQLAgent
 
-__all__ = ["SQLGeneratorAgent"]
+__all__ = ["SQLAgent"]

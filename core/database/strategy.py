@@ -1,6 +1,6 @@
-from sqlalchemy import create_engine, inspect
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
 
-# --- Abstract Strategy ---
 class DatabaseConnectionStrategy(ABC):
     """Abstract base class for a database connection strategy."""
     @abstractmethod
@@ -8,12 +8,6 @@ class DatabaseConnectionStrategy(ABC):
         """Constructs the SQLAlchemy database URI."""
         pass
 
-    @abstractmethod
-    def get_schema_info(self) -> str:
-        """Fetches and returns the database schema information as a string."""
-        pass
-
-# --- Concrete Strategies ---
 @dataclass
 class PostgresConnectionStrategy(DatabaseConnectionStrategy):
     """Strategy for connecting to a PostgreSQL database."""
@@ -24,18 +18,8 @@ class PostgresConnectionStrategy(DatabaseConnectionStrategy):
     dbname: str
 
     def get_uri(self) -> str:
-        # Assumes psycopg2 driver
+        # Assumes psycopg2 driver is installed (`pip install psycopg2-binary`)
         return f"postgresql+psycopg2://{self.user}:{self.password}@{self.host}:{self.port}/{self.dbname}"
-
-    def get_schema_info(self) -> str:
-        engine = create_engine(self.get_uri())
-        inspector = inspect(engine)
-        schema_info = []
-        for table_name in inspector.get_table_names():
-            schema_info.append(f"TABLE {table_name}:")
-            for column in inspector.get_columns(table_name):
-                schema_info.append(f"  {column['name']} {column['type']}")
-        return "\n".join(schema_info)
 
 @dataclass
 class SqliteConnectionStrategy(DatabaseConnectionStrategy):
@@ -44,13 +28,3 @@ class SqliteConnectionStrategy(DatabaseConnectionStrategy):
 
     def get_uri(self) -> str:
         return f"sqlite:///{self.db_path}"
-
-    def get_schema_info(self) -> str:
-        engine = create_engine(self.get_uri())
-        inspector = inspect(engine)
-        schema_info = []
-        for table_name in inspector.get_table_names():
-            schema_info.append(f"TABLE {table_name}:")
-            for column in inspector.get_columns(table_name):
-                schema_info.append(f"  {column['name']} {column['type']}")
-        return "\n".join(schema_info)

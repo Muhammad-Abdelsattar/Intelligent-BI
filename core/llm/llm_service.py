@@ -2,6 +2,8 @@ from typing import Dict, Any, List, Optional, Type, Union
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, BaseMessage
 from pydantic import BaseModel
+from omegaconf import DictConfig
+from pathlib import Path
 
 from core.llm.llm_factory import LLMFactory
 from core.llm.prompt_manager import PromptManager
@@ -14,25 +16,25 @@ class LLMService:
     creation, providing methods for different types of generation (text, structured).
     """
 
-    def __init__(self, agent_name: str, provider_key: str, llm_config_path: str = "core/config/llm_providers.yaml", prompts_base_path: str = "core/prompts"):
+    def __init__(self, agent_prompts_dir: str, provider_key: str, llm_providers_config: DictConfig, prompts_base_path: Path):
         """
         Initializes the complete LLM stack for a specific agent.
 
         Args:
-            agent_name: The name of the agent (e.g., 'sql_generator').
+            agent_prompts_dir: The name of the agent's prompt directory (e.g., 'sql_generator').
             provider_key: The key for the LLM provider from the config
                           (e.g., 'azure_openai_4o').
-            llm_config_path: Path to the LLM providers configuration file.
+            llm_providers_config: OmegaConf DictConfig containing LLM provider details.
             prompts_base_path: Path to the prompts directory.
         """
         # 1. Create LLM client
-        llm_factory = LLMFactory(config_path=llm_config_path)
+        llm_factory = LLMFactory(llm_providers_config=llm_providers_config)
         self.llm_client = llm_factory.create_llm_client(provider_key)
 
         # 2. Load prompts and examples
         prompt_manager = PromptManager(prompts_base_path=prompts_base_path)
-        self.system_prompt_template, self.human_prompt_template = prompt_manager.get_prompts(agent_name)
-        self.few_shot_examples = prompt_manager.get_few_shot_examples(agent_name)
+        self.system_prompt_template, self.human_prompt_template = prompt_manager.get_prompts(agent_prompts_dir)
+        self.few_shot_examples = prompt_manager.get_few_shot_examples(agent_prompts_dir)
 
     def _build_messages(self, variables: Dict[str, Any]) -> List[BaseMessage]:
         """Helper to build the list of messages for the LLM."""
@@ -54,7 +56,7 @@ class LLMService:
         messages.append(HumanMessage(content=human_content))
         return messages
 
-    def _extract_sql_from_response(self, raw_response: AIMessage) -> str:
+    def _extract_sql_from_response(self, raw_response: BaseMessage) -> str:
         """
         Extracts the SQL query from a markdown code block in the raw LLM response.
         Assumes the SQL is within ```sql ... ```.

@@ -9,26 +9,16 @@ class LLMFactory:
     A factory class for creating LangChain LLM clients using OmegaConf.
     """
 
-    def __init__(self, config_path: str = "core/config/llm_providers.yaml"):
+    def __init__(self, llm_providers_config: DictConfig):
         """
-        Initializes the factory by loading the LLM provider configuration.
+        Initializes the factory with the LLM provider configuration.
 
         Args:
-            config_path: The path to the OmegaConf YAML file.
+            llm_providers_config: OmegaConf DictConfig containing LLM provider details.
         """
-        self._config = self._load_config(config_path)
-
-    def _load_config(self, config_path: str) -> DictConfig:
-        """Loads the model configuration from the YAML file using OmegaConf."""
-        try:
-            conf = OmegaConf.load(config_path)
-            if not isinstance(conf, DictConfig) or 'llm_providers' not in conf or not isinstance(conf.llm_providers, DictConfig):
-                raise ValueError("YAML config must be a dictionary and contain a 'llm_providers' dictionary.")
-            return conf.llm_providers
-        except FileNotFoundError:
-            raise FileNotFoundError(f"LLM configuration file not found at: {config_path}")
-        except Exception as e:
-            raise RuntimeError(f"Error parsing LLM configuration with OmegaConf from '{config_path}': {e}")
+        if not isinstance(llm_providers_config, DictConfig) or 'llm_providers' not in llm_providers_config or not isinstance(llm_providers_config.llm_providers, DictConfig):
+            raise ValueError("LLM providers config must be a dictionary and contain a 'llm_providers' dictionary.")
+        self._config = llm_providers_config.llm_providers
 
     def get_available_providers(self) -> Dict[str, str]:
         """

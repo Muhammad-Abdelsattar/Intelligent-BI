@@ -1,4 +1,4 @@
-database:
+postgres:
   type: postgres
   params:
     host: ${oc.env:DB_HOST}

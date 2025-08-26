@@ -6,6 +6,9 @@
 {schema_definition}
 ```
 
+**Conversation History (Previous attempts and errors):**
+{history}
+
 **User Question:**
 {user_question}
 

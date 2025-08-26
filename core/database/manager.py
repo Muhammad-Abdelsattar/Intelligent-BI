@@ -7,18 +7,11 @@ from .strategy import DatabaseConnectionStrategy, PostgresConnectionStrategy, Sq
 
 class DatabaseManager:
     """
-    Manages database connections via a strategy and acts as a factory for itself.
+    Manages database connections via a strategy.
     """
-    def __init__(self, strategy: DatabaseConnectionStrategy):
-        if not isinstance(strategy, DatabaseConnectionStrategy):
-            raise TypeError("A valid DatabaseConnectionStrategy object must be provided.")
-        self._strategy = strategy
-        self._engine = create_engine(self._strategy.get_uri())
-
-    @classmethod
-    def from_config(cls, db_config: DictConfig) -> DatabaseManager:
+    def __init__(self, db_config: DictConfig):
         """
-        Factory class method to build a DatabaseManager with the correct strategy
+        Initializes the DatabaseManager with the correct strategy
         based on the provided configuration.
         """
         db_type = db_config.get("type")
@@ -35,7 +28,8 @@ class DatabaseManager:
         else:
             raise NotImplementedError(f"Database type '{db_type}' is not supported.")
 
-        return cls(strategy)
+        self._strategy = strategy
+        self._engine = create_engine(self._strategy.get_uri())
 
     def get_engine(self) -> Engine:
         """Returns the SQLAlchemy engine instance."""
