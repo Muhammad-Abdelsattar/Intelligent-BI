@@ -12,7 +12,6 @@ from core.memory.service import ConversationMemoryService
 
 load_dotenv("../../.env")
 
-# --- Logging Setup ---
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -20,13 +19,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# --- Global Variables ---
-# These will be initialized on chat start
+
 app_config = None
 prompts_base_path = None
 sql_agent = None
 memory_service = None
-# Define the path for the memory log file (relative to the project root or script location)
+
 MEMORY_LOG_FILE_PATH = Path(__file__).parent.parent / "conversation_memory_log.json"
 
 
@@ -37,16 +35,12 @@ def log_memory_state(memory_service: ConversationMemoryService, step: str):
     """
     global MEMORY_LOG_FILE_PATH
     try:
-        # Access the internal state of the memory service
-        # Note: Accessing _state directly relies on the internal implementation.
-        # A more robust way would be to add a method like `get_full_state()` to the service itself.
         state_to_log = {
             "step": step,
             "summary": memory_service._state.get("summary", ""),
             "message_buffer": memory_service._state.get("message_buffer", []),
         }
 
-        # Read existing log data if the file exists
         log_data = []
         if MEMORY_LOG_FILE_PATH.exists():
             try:
@@ -59,10 +53,8 @@ def log_memory_state(memory_service: ConversationMemoryService, step: str):
                     f"Could not read existing memory log file {MEMORY_LOG_FILE_PATH}: {e}. Starting fresh."
                 )
 
-        # Append the new state snapshot
         log_data.append(state_to_log)
 
-        # Write the updated log data back to the file
         with open(MEMORY_LOG_FILE_PATH, "w", encoding="utf-8") as f:
             json.dump(log_data, f, indent=4, ensure_ascii=False)
 
