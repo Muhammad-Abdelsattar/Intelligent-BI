@@ -3,14 +3,13 @@ import logging
 import sys
 from pathlib import Path
 from dotenv import load_dotenv
-import json # Import json for writing the state
+import json  # Import json for writing the state
 
 from core.utils.config_parser import load_app_config
 from core.agents.sql_agent import SQLAgent
 from core.memory.service import ConversationMemoryService
 
-# Load environment variables from the project root's .env file
-# Adjust the path if your .env is located elsewhere relative to this script
+
 load_dotenv("../../.env")
 
 # --- Logging Setup ---
@@ -30,6 +29,7 @@ memory_service = None
 # Define the path for the memory log file (relative to the project root or script location)
 MEMORY_LOG_FILE_PATH = Path(__file__).parent.parent / "conversation_memory_log.json"
 
+
 def log_memory_state(memory_service: ConversationMemoryService, step: str):
     """
     Logs the current state of the ConversationMemoryService to a file.
@@ -43,25 +43,27 @@ def log_memory_state(memory_service: ConversationMemoryService, step: str):
         state_to_log = {
             "step": step,
             "summary": memory_service._state.get("summary", ""),
-            "message_buffer": memory_service._state.get("message_buffer", [])
+            "message_buffer": memory_service._state.get("message_buffer", []),
         }
 
         # Read existing log data if the file exists
         log_data = []
         if MEMORY_LOG_FILE_PATH.exists():
             try:
-                with open(MEMORY_LOG_FILE_PATH, 'r', encoding='utf-8') as f:
+                with open(MEMORY_LOG_FILE_PATH, "r", encoding="utf-8") as f:
                     log_data = json.load(f)
                     if not isinstance(log_data, list):
-                        log_data = [] # Ensure it's a list
+                        log_data = []  # Ensure it's a list
             except (json.JSONDecodeError, IOError) as e:
-                logger.warning(f"Could not read existing memory log file {MEMORY_LOG_FILE_PATH}: {e}. Starting fresh.")
+                logger.warning(
+                    f"Could not read existing memory log file {MEMORY_LOG_FILE_PATH}: {e}. Starting fresh."
+                )
 
         # Append the new state snapshot
         log_data.append(state_to_log)
 
         # Write the updated log data back to the file
-        with open(MEMORY_LOG_FILE_PATH, 'w', encoding='utf-8') as f:
+        with open(MEMORY_LOG_FILE_PATH, "w", encoding="utf-8") as f:
             json.dump(log_data, f, indent=4, ensure_ascii=False)
 
         logger.info(f"Memory state logged to {MEMORY_LOG_FILE_PATH} at step: {step}")
@@ -77,14 +79,14 @@ async def start():
     try:
         # 1. Load configuration
         app_config = load_app_config()
-        prompts_base_path = Path("prompts") # Adjusted path relative to project root
+        prompts_base_path = Path("prompts")  # Adjusted path relative to project root
 
         # 2. Initialize the Conversation Memory Service
         memory_service = ConversationMemoryService(
             llm_config=app_config.llms,
             prompts_base_path=prompts_base_path,
             summarizer_llm_key="google-gemini-2.5-lite",
-            max_buffer_size=6, # Example: 3 pairs of Q&A before summarizing
+            max_buffer_size=6,  # Example: 3 pairs of Q&A before summarizing
         )
 
         # 3. Initialize the SQL agent using the factory method
@@ -97,7 +99,9 @@ async def start():
         # --- Log Initial Memory State ---
         log_memory_state(memory_service, "on_chat_start_initialized")
 
-        logger.info("Chainlit application initialized successfully with SQL Agent and Memory Service.")
+        logger.info(
+            "Chainlit application initialized successfully with SQL Agent and Memory Service."
+        )
         await cl.Message(
             content="Hello! I'm your SQL Agent. Ask me questions about your database. I'll remember our conversation. (Memory logging enabled)"
         ).send()
@@ -107,6 +111,7 @@ async def start():
         await cl.Message(
             content="Sorry, I encountered an error while initializing. Please check the application logs."
         ).send()
+
 
 @cl.on_message
 async def main(message: cl.Message):
@@ -132,7 +137,9 @@ async def main(message: cl.Message):
     memory_service.add_message(role="human", content=user_question)
 
     # --- Log Memory State AFTER adding user message ---
-    log_memory_state(memory_service, f"after_user_message_added: {user_question[:30]}...")
+    log_memory_state(
+        memory_service, f"after_user_message_added: {user_question[:30]}..."
+    )
 
     # Get the current working context (summary + recent history) for the agent
     working_context = memory_service.get_context_for_agent()
@@ -143,29 +150,32 @@ async def main(message: cl.Message):
         context_log_path = MEMORY_LOG_FILE_PATH.with_name("agent_context_log.json")
         context_entry = {
             "user_question": user_question,
-            "working_context_sent": working_context
+            "working_context_sent": working_context,
         }
         context_log_data = []
         if context_log_path.exists():
-             try:
-                 with open(context_log_path, 'r', encoding='utf-8') as f:
-                     context_log_data = json.load(f)
-                     if not isinstance(context_log_data, list):
-                         context_log_data = []
-             except (json.JSONDecodeError, IOError) as e:
-                 logger.warning(f"Could not read existing context log file {context_log_path}: {e}. Starting fresh.")
+            try:
+                with open(context_log_path, "r", encoding="utf-8") as f:
+                    context_log_data = json.load(f)
+                    if not isinstance(context_log_data, list):
+                        context_log_data = []
+            except (json.JSONDecodeError, IOError) as e:
+                logger.warning(
+                    f"Could not read existing context log file {context_log_path}: {e}. Starting fresh."
+                )
 
         context_log_data.append(context_entry)
 
-        with open(context_log_path, 'w', encoding='utf-8') as f:
+        with open(context_log_path, "w", encoding="utf-8") as f:
             json.dump(context_log_data, f, indent=4, ensure_ascii=False)
         logger.info(f"Agent context logged to {context_log_path}")
     except Exception as e:
-         logger.error(f"Failed to log agent context: {e}")
-
+        logger.error(f"Failed to log agent context: {e}")
 
     # Create a temporary message to show the user that we're processing
-    processing_msg = cl.Message(content="🔍 Analyzing your question and querying the database...")
+    processing_msg = cl.Message(
+        content="🔍 Analyzing your question and querying the database..."
+    )
     await processing_msg.send()
 
     try:
@@ -173,7 +183,7 @@ async def main(message: cl.Message):
         logger.info("Routing query to SQLAgent...")
         result = sql_agent.run(
             natural_language_question=user_question,
-            chat_history=chat_history_for_agent # Pass the history
+            chat_history=chat_history_for_agent,  # Pass the history
         )
 
         # Extract the results from the agent's response
@@ -183,33 +193,42 @@ async def main(message: cl.Message):
         # Prepare elements to send (e.g., the DataFrame)
         elements = []
         if df is not None and not df.empty:
-            elements.append(cl.Dataframe(data=df, display="inline", name="Query Results"))
+            elements.append(
+                cl.Dataframe(data=df, display="inline", name="Query Results")
+            )
         elif df is not None and df.empty:
-             pass # Message content will indicate this
+            pass  # Message content will indicate this
 
         # Prepare the response message content
         response_content = f"✅ I've executed the following query for you:\n\n```sql\n{generated_sql}\n```"
         if df is not None and df.empty:
-            response_content += "\n\nℹ️ The query executed successfully, but returned no rows."
-
+            response_content += (
+                "\n\nℹ️ The query executed successfully, but returned no rows."
+            )
 
         # --- Log Memory State BEFORE adding AI message ---
-        log_memory_state(memory_service, f"before_ai_message_added_for: {user_question[:30]}...")
-
+        log_memory_state(
+            memory_service, f"before_ai_message_added_for: {user_question[:30]}..."
+        )
 
         # Add AI response to memory
-        ai_memory_content = f"Successfully executed query: ```sql\n{generated_sql}\n```\n"
+        ai_memory_content = (
+            f"Successfully executed query: ```sql\n{generated_sql}\n```\n"
+        )
         if df is not None:
             rows_returned = len(df)
-            ai_memory_content += f"Retrieved {rows_returned} row{'s' if rows_returned != 1 else ''}."
+            ai_memory_content += (
+                f"Retrieved {rows_returned} row{'s' if rows_returned != 1 else ''}."
+            )
             # Optional: Add brief data summary if needed
 
         memory_service.add_message(role="ai", content=ai_memory_content)
         logger.info(f"Added AI response to memory: {ai_memory_content}")
 
         # --- Log Memory State AFTER adding AI message ---
-        log_memory_state(memory_service, f"after_ai_message_added_for: {user_question[:30]}...")
-
+        log_memory_state(
+            memory_service, f"after_ai_message_added_for: {user_question[:30]}..."
+        )
 
         # Update the processing message with the final results
         processing_msg.content = response_content
@@ -217,19 +236,23 @@ async def main(message: cl.Message):
         processing_msg.elements = elements
         await processing_msg.update()
 
-
     except RuntimeError as e:
         error_message = f"❌ I encountered an error while processing your query: {e}"
         logger.error(f"SQL Agent runtime error: {e}")
 
         # --- Log Memory State BEFORE adding AI error message ---
-        log_memory_state(memory_service, f"before_ai_error_message_added_for: {user_question[:30]}...")
+        log_memory_state(
+            memory_service,
+            f"before_ai_error_message_added_for: {user_question[:30]}...",
+        )
 
         # Add error to memory
         memory_service.add_message(role="ai", content=f"Error occurred: {e}")
 
         # --- Log Memory State AFTER adding AI error message ---
-        log_memory_state(memory_service, f"after_ai_error_message_added_for: {user_question[:30]}...")
+        log_memory_state(
+            memory_service, f"after_ai_error_message_added_for: {user_question[:30]}..."
+        )
 
         # Update the processing message for error
         processing_msg.content = error_message
@@ -241,13 +264,19 @@ async def main(message: cl.Message):
         logger.error(f"Unexpected error in Chainlit app: {e}", exc_info=True)
 
         # --- Log Memory State BEFORE adding unexpected error message ---
-        log_memory_state(memory_service, f"before_unexpected_error_message_added_for: {user_question[:30]}...")
+        log_memory_state(
+            memory_service,
+            f"before_unexpected_error_message_added_for: {user_question[:30]}...",
+        )
 
         # Add error to memory
         memory_service.add_message(role="ai", content=f"Unexpected error occurred: {e}")
 
         # --- Log Memory State AFTER adding unexpected error message ---
-        log_memory_state(memory_service, f"after_unexpected_error_message_added_for: {user_question[:30]}...")
+        log_memory_state(
+            memory_service,
+            f"after_unexpected_error_message_added_for: {user_question[:30]}...",
+        )
 
         # Update the processing message for unexpected error
         processing_msg.content = error_message
