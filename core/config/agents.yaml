@@ -2,5 +2,10 @@ sql_agent:
   name: "SQLAgent"
   prompts_dir: "sql_agent"
   max_attempts: 3
-  llm_provider_key: "azure-openai-gpt4o-mini"
-  database_key: "postgres" 
+  llm_provider_key: "google-gemini-2.5-lite"
+  database_key: "postgres"
+
+context_manager_agent:
+  name: "ContextManager"
+  prompts_dir: "context_manager"
+  llm_provider_key: "google-gemini-2.5-lite"

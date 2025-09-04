@@ -1,0 +1,11 @@
+chainlit==1.1.401
+pandas
+omegaconf
+langgraph
+python-dotenv
+langchain
+langchain-core
+SQLAlchemy
+sqlparse
+psycopg2-binary
+tabulate

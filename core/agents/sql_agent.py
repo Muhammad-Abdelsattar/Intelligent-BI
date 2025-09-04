@@ -61,28 +61,35 @@ class SQLAgent:
         self.workflow = self._build_graph()
         self.app = self.workflow.compile()
 
+
     @classmethod
     def from_config(
         cls,
         agent_key: str,
         app_config: DictConfig,
-        prompts_base_path: Path
+        prompts_base_path: Path,
+        db_key_override: Optional[str] = None
     ) -> "SQLAgent":
-        # This factory method remains unchanged.
         agent_config = app_config.agents.get(agent_key)
         if not agent_config:
             raise ValueError(f"Agent key '{agent_key}' not found in agents configuration.")
+        
         llm_service = LLMService(
             agent_prompts_dir=agent_config.prompts_dir,
             provider_key=agent_config.llm_provider_key,
             llm_config=app_config.llms,
             prompts_base_path=prompts_base_path
         )
-        db_key = agent_config.database_key
+        
+        # Use the override if provided, otherwise fall back to the agent's default
+        db_key = db_key_override if db_key_override is not None else agent_config.database_key
+        
         db_config = app_config.databases.get(db_key)
         if db_config is None:
             raise ValueError(f"Database key '{db_key}' not found in databases configuration.")
+            
         db_service = AgentDatabaseService(db_config)
+        
         return cls(
             llm_service=llm_service,
             db_service=db_service,
@@ -122,6 +129,7 @@ class SQLAgent:
             "history": "\n".join(state["history"]), # Internal retry history
             "chat_history": chat_history_str if chat_history_str else "No previous conversation history."
         }
+
 
         response: SQLAgentResponse = self.llm_service.generate_structured(
             variables=llm_variables,
@@ -214,7 +222,7 @@ class SQLAgent:
 
         # The agent returns its primary output, as expected by the orchestrator.
         if final_state["final_dataframe"] is not None:
-            return final_state["final_dataframe"]
+            return {"dataframe":final_state["final_dataframe"],"sql_query":final_state["generated_sql"]}
         else:
             final_error = final_state["error"] or "Unknown error"
             raise RuntimeError(

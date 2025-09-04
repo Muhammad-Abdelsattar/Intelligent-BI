@@ -1,7 +1,7 @@
 sqlite_default:
   type: sqlite
   params:
-    db_path: "data/bi_database.db" # Example path relative to project root
+    db_path: "data/bi_database.db"
 
 postgres:
   type: postgres
