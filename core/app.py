@@ -3,14 +3,14 @@ import logging
 import sys
 from pathlib import Path
 from dotenv import load_dotenv
-import json  # Import json for writing the state
+import json 
 
-from core.utils.config_parser import load_app_config
+from core.utils.config_parser import PROJECT_ROOT, load_app_config
 from core.agents.sql_agent import SQLAgent
 from core.memory.service import ConversationMemoryService
 
 
-load_dotenv("../../.env")
+load_dotenv(PROJECT_ROOT / ".env")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -69,26 +69,22 @@ async def start():
     """Initialize the application when the chat starts."""
     global app_config, prompts_base_path, sql_agent, memory_service
     try:
-        # 1. Load configuration
         app_config = load_app_config()
-        prompts_base_path = Path("prompts")  # Adjusted path relative to project root
+        prompts_base_path = PROJECT_ROOT / "prompts"
 
-        # 2. Initialize the Conversation Memory Service
         memory_service = ConversationMemoryService(
             llm_config=app_config.llms,
             prompts_base_path=prompts_base_path,
             summarizer_llm_key="google-gemini-2.5-lite",
-            max_buffer_size=6,  # Example: 3 pairs of Q&A before summarizing
+            max_buffer_size=20,  # Example: 10 pairs of Q&A before summarizing
         )
 
-        # 3. Initialize the SQL agent using the factory method
         sql_agent = SQLAgent.from_config(
             agent_key="sql_agent",
             app_config=app_config,
             prompts_base_path=prompts_base_path,
         )
 
-        # --- Log Initial Memory State ---
         log_memory_state(memory_service, "on_chat_start_initialized")
 
         logger.info(
@@ -110,7 +106,6 @@ async def main(message: cl.Message):
     """Handle incoming messages from the user."""
     global sql_agent, memory_service
 
-    # Safety check for agent initialization
     if sql_agent is None or memory_service is None:
         await cl.Message(
             content="Sorry, the application components are not initialized correctly. Please restart the chat."
