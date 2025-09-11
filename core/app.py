@@ -1,17 +1,73 @@
-import chainlit as cl
+import streamlit as st
+import pandas as pd
 import logging
 import sys
 from pathlib import Path
 from dotenv import load_dotenv
-import json
+from sql_formatter.core import format_sql
 
-from core.utils.config_parser import PROJECT_ROOT, load_app_config
-from core.agents.sql_agent import SQLAgent
-from core.memory.service import ConversationMemoryService
+# --- Core Logic Imports ---
+from utils.config_parser import PROJECT_ROOT, load_app_config
+from agents.sql_agent import SQLAgent
+from memory.service import ConversationMemoryService
 
+# --- Page Configuration (Must be the first Streamlit command) ---
+st.set_page_config(
+    page_title="AuraBI - Intelligent Data Assistant", page_icon="✨", layout="wide"
+)
 
+# --- Custom Styling for an Elegant, Professional Dark Theme ---
+st.markdown(
+    """
+    <style>
+    @import url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css');
+    
+    /* Core layout and theme */
+    .stApp { background-color: #121212; color: #E0E0E0; }
+    [data-testid="stSidebar"] { background-color: #1E1E1E; border-right: 1px solid #3A3A3A;}
+    .stChatMessage { background-color: #2E2E2E; border: 1px solid #4A4A4A; border-radius: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.3); }
+    .stButton>button {
+    /* Base style */
+    font-weight: 600;
+    border-radius: 8px;
+    border: none; /* Remove the default border */
+    background-color: #007ACC; /* A strong, elegant blue */
+    color: #FFFFFF;
+    padding: 0.5rem 1rem;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2); /* Add depth */
+    
+    /* Smooth transition for hover effects */
+    transition: all 0.3s ease-in-out;
+    }
+
+    .stButton>button:hover {
+        /* Hover effects */
+        background-color: #0099FF; /* Brighter blue on hover */
+        box-shadow: 0 6px 10px rgba(0, 0, 0, 0.3); /* Increase shadow for a "lift" effect */
+        transform: translateY(-2px); /* Slight lift on hover */
+    }
+
+    .stButton>button:active {
+        /* Click effect */
+        transform: translateY(0px);
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    }
+    
+    /* SQL Viewer Styling */
+    .sql-viewer-container {
+        background-color: #1E1E1E;
+        border: 1px solid #4A4A4A;
+        border-radius: 10px;
+        padding: 1rem;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+    }
+    </style>
+""",
+    unsafe_allow_html=True,
+)
+
+# --- Logging and Environment Setup ---
 load_dotenv(PROJECT_ROOT / ".env")
-
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -20,253 +76,191 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-app_config = None
-prompts_base_path = None
-sql_agent = None
-memory_service = None
-
-MEMORY_LOG_FILE_PATH = PROJECT_ROOT / "conversation_memory_log.json"
-
-
-def log_memory_state(memory_service: ConversationMemoryService, step: str):
-    """
-    Logs the current state of the ConversationMemoryService to a file.
-    This function safely accesses the internal _state of the service.
-    """
-    MEMORY_LOG_FILE_PATH
-    try:
-        state_to_log = {
-            "step": step,
-            "summary": memory_service._state.get("summary", ""),
-            "message_buffer": memory_service._state.get("message_buffer", []),
-        }
-
-        log_data = []
-        if MEMORY_LOG_FILE_PATH.exists():
-            try:
-                with open(MEMORY_LOG_FILE_PATH, "r", encoding="utf-8") as f:
-                    log_data = json.load(f)
-                    if not isinstance(log_data, list):
-                        log_data = []  # Ensure it's a list
-            except (json.JSONDecodeError, IOError) as e:
-                logger.warning(
-                    f"Could not read existing memory log file {MEMORY_LOG_FILE_PATH}: {e}. Starting fresh."
+# --- Session State and Initialization ---
+def initialize_session():
+    if "initialized" not in st.session_state:
+        try:
+            # Correctly define the prompts path as requested
+            prompts_path = PROJECT_ROOT / "core" / "prompts"
+            if not prompts_path.exists():
+                raise FileNotFoundError(
+                    f"Prompts directory not found at the required path: {prompts_path}"
                 )
 
-        log_data.append(state_to_log)
+            app_config = load_app_config()
 
-        with open(MEMORY_LOG_FILE_PATH, "w", encoding="utf-8") as f:
-            json.dump(log_data, f, indent=4, ensure_ascii=False)
-
-        logger.info(f"Memory state logged to {MEMORY_LOG_FILE_PATH} at step: {step}")
-
-    except Exception as e:
-        logger.error(f"Failed to log memory state: {e}")
-
-
-@cl.on_chat_start
-async def start():
-    """Initialize the application when the chat starts."""
-    global app_config, prompts_base_path, sql_agent, memory_service
-    try:
-        app_config = load_app_config()
-        prompts_base_path = PROJECT_ROOT / "prompts"
-
-        memory_service = ConversationMemoryService(
-            llm_config=app_config.llms,
-            prompts_base_path=prompts_base_path,
-            summarizer_llm_key="google-gemini-2.5-lite",
-            max_buffer_size=20,  # Example: 10 pairs of Q&A before summarizing
-        )
-
-        sql_agent = SQLAgent.from_config(
-            agent_key="sql_agent",
-            app_config=app_config,
-            prompts_base_path=prompts_base_path,
-        )
-
-        log_memory_state(memory_service, "on_chat_start_initialized")
-
-        logger.info(
-            "Chainlit application initialized successfully with SQL Agent and Memory Service."
-        )
-        await cl.Message(
-            content="Hello! I'm your SQL Agent. Ask me questions about your database. I'll remember our conversation. (Memory logging enabled)"
-        ).send()
-
-    except Exception as e:
-        logger.error(f"Failed to initialize application: {e}", exc_info=True)
-        await cl.Message(
-            content="Sorry, I encountered an error while initializing. Please check the application logs."
-        ).send()
+            st.session_state.memory_service = ConversationMemoryService(
+                llm_config=app_config.llms,
+                prompts_base_path=prompts_path,
+                summarizer_llm_key="google-gemini-2.5-lite",
+                max_buffer_size=20,
+            )
+            st.session_state.sql_agent = SQLAgent.from_config(
+                agent_key="sql_agent",
+                app_config=app_config,
+                prompts_base_path=prompts_path,
+            )
+            st.session_state.messages = []
+            st.session_state.show_sql_for_index = None
+            st.session_state.initialized = True
+            logger.info("Streamlit session initialized successfully.")
+        except Exception as e:
+            st.error(f"Initialization Failed: {e}")
+            st.stop()
 
 
-@cl.on_message
-async def main(message: cl.Message):
-    """Handle incoming messages from the user."""
-    global sql_agent, memory_service
+# --- UI Helper Functions ---
+def display_debug_sidebar():
+    with st.sidebar:
+        st.title("🛠️ Debug Panel")
+        if st.button("Clear Chat History"):
+            st.session_state.messages = []
+            st.session_state.show_sql_for_index = None
+            st.rerun()
 
-    if sql_agent is None or memory_service is None:
-        await cl.Message(
-            content="Sorry, the application components are not initialized correctly. Please restart the chat."
-        ).send()
-        logger.error("SQL Agent or Memory Service is not initialized.")
-        return
-
-    # Get the user's question
-    user_question = message.content
-    logger.info(f"Received user question: {user_question}")
-
-    # --- Log Memory State BEFORE adding user message ---
-    log_memory_state(memory_service, f"before_user_message: {user_question[:30]}...")
-
-    # Add user message to memory
-    memory_service.add_message(role="human", content=user_question)
-
-    # --- Log Memory State AFTER adding user message ---
-    log_memory_state(
-        memory_service, f"after_user_message_added: {user_question[:30]}..."
-    )
-
-    # Get the current working context (summary + recent history) for the agent
-    working_context = memory_service.get_context_for_agent()
-    chat_history_for_agent = working_context.get("chat_history", [])
-
-    # --- Log the Working Context Sent to Agent ---
-    try:
-        context_log_path = MEMORY_LOG_FILE_PATH.with_name("agent_context_log.json")
-        context_entry = {
-            "user_question": user_question,
-            "working_context_sent": working_context,
-        }
-        context_log_data = []
-        if context_log_path.exists():
-            try:
-                with open(context_log_path, "r", encoding="utf-8") as f:
-                    context_log_data = json.load(f)
-                    if not isinstance(context_log_data, list):
-                        context_log_data = []
-            except (json.JSONDecodeError, IOError) as e:
-                logger.warning(
-                    f"Could not read existing context log file {context_log_path}: {e}. Starting fresh."
+        memory_service = st.session_state.get("memory_service")
+        if memory_service:
+            with st.expander("🧠 Conversation Memory", expanded=False):
+                memory_state = getattr(memory_service, "_state", {})
+                st.json(
+                    {
+                        "summary": memory_state.get("summary", ""),
+                        "buffer": memory_state.get("message_buffer", []),
+                    }
                 )
 
-        context_log_data.append(context_entry)
+        with st.expander("📜 Raw Chat History", expanded=False):
+            st.json(st.session_state.get("messages", []))
 
-        with open(context_log_path, "w", encoding="utf-8") as f:
-            json.dump(context_log_data, f, indent=4, ensure_ascii=False)
-        logger.info(f"Agent context logged to {context_log_path}")
-    except Exception as e:
-        logger.error(f"Failed to log agent context: {e}")
 
-    # Create a temporary message to show the user that we're processing
-    processing_msg = cl.Message(
-        content="🔍 Analyzing your question and querying the database..."
+# --- Main Application ---
+initialize_session()
+# display_debug_sidebar()
+
+# Main chat container
+chat_container = st.container()
+
+with chat_container:
+    st.title("✨ AuraBI")
+    st.caption("Your Intelligent Data Assistant")
+
+    # Render the entire chat history
+    for i, message in enumerate(st.session_state.messages):
+        is_sql_viewer_active = st.session_state.show_sql_for_index == i
+
+        # Dynamically create columns only for the message with an active SQL viewer
+        if is_sql_viewer_active:
+            chat_col, sql_col = st.columns([0.6, 0.4])  # 60% for chat, 40% for SQL
+        else:
+            chat_col = st.container()
+
+        with chat_col:
+            with st.chat_message(message["role"]):
+                st.markdown(message["content"])
+
+                # --- Render Rich Content (DataFrames, Buttons) ---
+                if (
+                    "dataframe" in message
+                    and message["dataframe"] is not None
+                    and not message["dataframe"].empty
+                ):
+                    df = message["dataframe"]
+
+                    # --- Elegant Button Placement ---
+                    # Use columns for right-alignment of the View SQL button
+                    _, btn_col, _ = st.columns([0.75, 0.24, 0.01])
+                    with btn_col:
+                        if "sql_query" in message:
+                            if is_sql_viewer_active:
+                                if st.button(
+                                    "← Close SQL",
+                                    key=f"close_sql_{i}",
+                                    use_container_width=True,
+                                ):
+                                    st.session_state.show_sql_for_index = None
+                                    st.rerun()
+                            else:
+                                if st.button(
+                                    "View SQL →",
+                                    key=f"view_sql_{i}",
+                                    use_container_width=True,
+                                ):
+                                    st.session_state.show_sql_for_index = i
+                                    st.rerun()
+
+                    # Display the dataframe
+                    st.dataframe(df, use_container_width=True)
+
+                    # Export button at the bottom-left
+                    csv = df.to_csv(index=False).encode("utf-8")
+                    st.download_button(
+                        "💾 Export to CSV",
+                        csv,
+                        "query_results.csv",
+                        "text/csv",
+                        key=f"csv_{i}",
+                    )
+
+        # If the SQL viewer is active for this message, render it in the right column
+        if is_sql_viewer_active:
+            with sql_col:
+                with st.container():
+                    st.info("Generated SQL Query")
+                    formatted_sql = format_sql(message["sql_query"])
+                    st.code(formatted_sql, language="sql")
+
+    # Anchor for new messages
+    st.container().empty()
+
+# --- Handle New User Input ---
+if prompt := st.chat_input("Ask a question about your data..."):
+    st.session_state.show_sql_for_index = (
+        None  # Close any open SQL viewer on new prompt
     )
-    await processing_msg.send()
+    st.session_state.messages.append({"role": "user", "content": prompt})
 
-    try:
-        # --- Run the SQL agent with conversation history ---
-        logger.info("Routing query to SQLAgent...")
-        result = sql_agent.run(
-            natural_language_question=user_question,
-            chat_history=chat_history_for_agent,  # Pass the history
-        )
+    with st.chat_message("user"):
+        st.markdown(prompt)
 
-        # Extract the results from the agent's response
-        df = result["dataframe"]
-        generated_sql = result["sql_query"]
+    with st.chat_message("assistant"):
+        with st.spinner("Agent is at work..."):
+            try:
+                memory_service = st.session_state.memory_service
+                sql_agent = st.session_state.sql_agent
+                memory_service.add_message(role="human", content=prompt)
+                working_context = memory_service.get_context_for_agent()
+                chat_history = working_context.get("chat_history", [])
 
-        # Prepare elements to send (e.g., the DataFrame)
-        elements = []
-        if df is not None and not df.empty:
-            elements.append(
-                cl.Dataframe(data=df, display="inline", name="Query Results")
-            )
-        elif df is not None and df.empty:
-            pass  # Message content will indicate this
+                result = sql_agent.run(
+                    natural_language_question=prompt, chat_history=chat_history
+                )
 
-        # Prepare the response message content
-        response_content = f"✅ I've executed the following query for you:\n\n```sql\n{generated_sql}\n```"
-        if df is not None and df.empty:
-            response_content += (
-                "\n\nℹ️ The query executed successfully, but returned no rows."
-            )
+                df = result.get("dataframe")
+                sql_query = result.get("sql_query", "No SQL generated.")
 
-        # --- Log Memory State BEFORE adding AI message ---
-        log_memory_state(
-            memory_service, f"before_ai_message_added_for: {user_question[:30]}..."
-        )
+                response_content = "Here are the results for your query."
+                if df is not None and df.empty:
+                    response_content = (
+                        "The query ran successfully but returned no data."
+                    )
 
-        # Add AI response to memory
-        ai_memory_content = (
-            f"Successfully executed query: ```sql\n{generated_sql}\n```\n"
-        )
-        if df is not None:
-            rows_returned = len(df)
-            ai_memory_content += (
-                f"Retrieved {rows_returned} row{'s' if rows_returned != 1 else ''}."
-            )
-            # Optional: Add brief data summary if needed
+                assistant_message = {
+                    "role": "assistant",
+                    "content": response_content,
+                    "sql_query": sql_query,
+                    "dataframe": df if df is not None else pd.DataFrame(),
+                }
+                st.session_state.messages.append(assistant_message)
 
-        memory_service.add_message(role="ai", content=ai_memory_content)
-        logger.info(f"Added AI response to memory: {ai_memory_content}")
+                ai_memory_content = f"Executed SQL. Result: {'Dataframe returned.' if df is not None and not df.empty else 'No data returned.'}"
+                memory_service.add_message(role="ai", content=ai_memory_content)
 
-        # --- Log Memory State AFTER adding AI message ---
-        log_memory_state(
-            memory_service, f"after_ai_message_added_for: {user_question[:30]}..."
-        )
+                st.rerun()
 
-        # Update the processing message with the final results
-        processing_msg.content = response_content
-        processing_msg.author = "SQL Agent"
-        processing_msg.elements = elements
-        await processing_msg.update()
-
-    except RuntimeError as e:
-        error_message = f"❌ I encountered an error while processing your query: {e}"
-        logger.error(f"SQL Agent runtime error: {e}")
-
-        # --- Log Memory State BEFORE adding AI error message ---
-        log_memory_state(
-            memory_service,
-            f"before_ai_error_message_added_for: {user_question[:30]}...",
-        )
-
-        # Add error to memory
-        memory_service.add_message(role="ai", content=f"Error occurred: {e}")
-
-        # --- Log Memory State AFTER adding AI error message ---
-        log_memory_state(
-            memory_service, f"after_ai_error_message_added_for: {user_question[:30]}..."
-        )
-
-        # Update the processing message for error
-        processing_msg.content = error_message
-        processing_msg.author = "SQL Agent"
-        await processing_msg.update()
-
-    except Exception as e:
-        error_message = f"❌ An unexpected error occurred: {e}"
-        logger.error(f"Unexpected error in Chainlit app: {e}", exc_info=True)
-
-        # --- Log Memory State BEFORE adding unexpected error message ---
-        log_memory_state(
-            memory_service,
-            f"before_unexpected_error_message_added_for: {user_question[:30]}...",
-        )
-
-        # Add error to memory
-        memory_service.add_message(role="ai", content=f"Unexpected error occurred: {e}")
-
-        # --- Log Memory State AFTER adding unexpected error message ---
-        log_memory_state(
-            memory_service,
-            f"after_unexpected_error_message_added_for: {user_question[:30]}...",
-        )
-
-        # Update the processing message for unexpected error
-        processing_msg.content = error_message
-        processing_msg.author = "System"
-        await processing_msg.update()
-
+            except Exception as e:
+                logger.error(f"An error occurred: {e}", exc_info=True)
+                error_message = f"I'm sorry, an error occurred: {e}"
+                st.error(error_message)
+                st.session_state.messages.append(
+                    {"role": "assistant", "content": error_message}
+                )
